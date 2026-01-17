@@ -10,6 +10,7 @@ import AuthorityAuth from "./pages/AuthorityAuth";
 import CitizenDashboard from "./pages/CitizenDashboard";
 import AuthorityDashboard from "./pages/AuthorityDashboard";
 import NotFound from "./pages/NotFound";
+import { DebugPanel } from "./components/DebugPanel"; // Add this import
 
 const queryClient = new QueryClient();
 
@@ -18,14 +19,12 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      {/* <BrowserRouter> */}
       <BrowserRouter
-  future={{
-    v7_startTransition: true,
-    v7_relativeSplatPath: true,
-  }}
->
-
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/select-account" element={<SelectAccount />} />
@@ -36,6 +35,9 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      
+      {/* Add DebugPanel for development */}
+      {import.meta.env.MODE === 'development' && <DebugPanel />}
     </TooltipProvider>
   </QueryClientProvider>
 );

@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, MapPin, Building2, RefreshCw } from "lucide-react";
+import { ArrowLeft, MapPin, Building2, RefreshCw, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { authorityApi } from "@/lib/api";
 
 /* ======================================================
    APPROVED AUTHORITY EMAIL DOMAINS
@@ -53,26 +54,21 @@ const generateCaptcha = (): string => {
   return captcha;
 };
 
-/* ======================================================
-   4-DIGIT OTP GENERATOR
-   ====================================================== */
-const generateOtp = (): string => {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-};
-
 const AuthorityAuth = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
 
   /* =====================
      SIGNUP STATE
      ===================== */
   const [signupData, setSignupData] = useState({
-    authorityEmail: "",
-    name: "",
+    email: "",
+    full_name: "",
     designation: "",
     department: "",
     password: "",
+    confirmPassword: "",
   });
 
   /* =====================
@@ -80,22 +76,14 @@ const AuthorityAuth = () => {
      ===================== */
   const [loginData, setLoginData] = useState({
     email: "",
-    otp: "",
-    captcha: "",
+    password: "",
   });
 
-  const [isOtpSent, setIsOtpSent] = useState(false);
-
   /* =====================
-     CAPTCHA STATE
+     CAPTCHA STATE (For future use if needed)
      ===================== */
   const [captcha, setCaptcha] = useState(generateCaptcha());
   const [captchaTimer, setCaptchaTimer] = useState(60);
-
-  /* =====================
-     OTP STATE
-     ===================== */
-  const [generatedOtp, setGeneratedOtp] = useState("");
 
   /* ======================================================
      CAPTCHA AUTO REFRESH (60s)
@@ -117,86 +105,53 @@ const AuthorityAuth = () => {
   }, []);
 
   /* ======================================================
-     SEND OTP
-     ====================================================== */
-  const handleSendOtp = () => {
-    if (!loginData.email) {
-      toast({
-        title: "Enter Email",
-        description: "Please enter your official authority email.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!isValidAuthorityEmail(loginData.email)) {
-      toast({
-        title: "Invalid Authority Email",
-        description: "Only official authority emails are allowed.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const otp = generateOtp();
-    setGeneratedOtp(otp);
-    setIsOtpSent(true);
-
-    setCaptcha(generateCaptcha());
-    setCaptchaTimer(60);
-
-    // (Simulation only — backend should send OTP)
-    console.log("Generated OTP:", otp);
-
-    toast({
-      title: "OTP Sent",
-      description: "A 4-digit OTP has been sent to your email.",
-    });
-  };
-
-  /* ======================================================
      LOGIN SUBMIT
      ====================================================== */
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (loginData.captcha !== captcha) {
+    
+    if (!loginData.email || !loginData.password) {
       toast({
-        title: "Invalid CAPTCHA",
-        description: "CAPTCHA does not match.",
+        title: "Missing Information",
+        description: "Please fill in all fields",
         variant: "destructive",
       });
-      setCaptcha(generateCaptcha());
-      setCaptchaTimer(60);
       return;
     }
 
-    if (loginData.otp !== generatedOtp) {
+    setIsLoading(true);
+    try {
+      // TODO: Implement actual authority login endpoint
+      // For now, simulate login
       toast({
-        title: "Invalid OTP",
-        description: "Incorrect 4-digit OTP.",
+        title: "Login Successful",
+        description: "Redirecting to dashboard...",
+      });
+      
+      localStorage.setItem("authority", JSON.stringify({
+        email: loginData.email,
+        loggedIn: true,
+      }));
+      
+      setTimeout(() => navigate("/authority/dashboard"), 1000);
+    } catch (error: any) {
+      toast({
+        title: "Login Failed",
+        description: error.message || "Invalid credentials",
         variant: "destructive",
       });
-      setCaptcha(generateCaptcha());
-      setCaptchaTimer(60);
-      return;
+    } finally {
+      setIsLoading(false);
     }
-
-    toast({
-      title: "Login Successful",
-      description: "Redirecting to dashboard...",
-    });
-
-    setTimeout(() => navigate("/authority/dashboard"), 1000);
   };
 
   /* ======================================================
      SIGNUP SUBMIT
      ====================================================== */
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!isValidAuthorityEmail(signupData.authorityEmail)) {
+    if (!isValidAuthorityEmail(signupData.email)) {
       toast({
         title: "Invalid Authority Email",
         description: "Use your official authority email only.",
@@ -205,12 +160,52 @@ const AuthorityAuth = () => {
       return;
     }
 
-    toast({
-      title: "Registration Submitted",
-      description: "Your account is pending verification.",
-    });
+    if (signupData.password !== signupData.confirmPassword) {
+      toast({
+        title: "Passwords Don't Match",
+        description: "Please make sure passwords match.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    setTimeout(() => navigate("/authority/dashboard"), 1500);
+    if (signupData.password.length < 6) {
+      toast({
+        title: "Weak Password",
+        description: "Password must be at least 6 characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Call backend API to sign up
+      const response = await authorityApi.signup({
+        email: signupData.email,
+        full_name: signupData.full_name,
+        designation: signupData.designation,
+        department: signupData.department,
+        password: signupData.password,
+      });
+
+      toast({
+        title: "Registration Submitted",
+        description: response.message || "Please check your email for verification link.",
+      });
+
+      console.log("Authority signup response:", response);
+
+    } catch (error: any) {
+      toast({
+        title: "Registration Failed",
+        description: error.message || "Please try again",
+        variant: "destructive",
+      });
+      console.error("Authority signup error:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -246,91 +241,146 @@ const AuthorityAuth = () => {
                 {/* LOGIN */}
                 <TabsContent value="login">
                   <form onSubmit={handleLogin} className="space-y-4">
-                    <Label>Authority Email ID</Label>
-                    <Input
-                      value={loginData.email}
-                      onChange={(e) =>
-                        setLoginData({ ...loginData, email: e.target.value })
-                      }
-                    />
+                    <div>
+                      <Label>Authority Email ID</Label>
+                      <Input
+                        type="email"
+                        placeholder="official@authority.gov.in"
+                        value={loginData.email}
+                        onChange={(e) =>
+                          setLoginData({ ...loginData, email: e.target.value })
+                        }
+                        disabled={isLoading}
+                      />
+                    </div>
+                    
+                    <div>
+                      <Label>Password</Label>
+                      <Input
+                        type="password"
+                        placeholder="Enter your password"
+                        value={loginData.password}
+                        onChange={(e) =>
+                          setLoginData({ ...loginData, password: e.target.value })
+                        }
+                        disabled={isLoading}
+                      />
+                    </div>
 
-                    {!isOtpSent ? (
-                      <Button type="button" onClick={handleSendOtp} className="w-full">
-                        Send OTP
-                      </Button>
-                    ) : (
-                      <>
-                        <Input
-                          placeholder="Enter 4-digit OTP"
-                          maxLength={4}
-                          value={loginData.otp}
-                          onChange={(e) =>
-                            setLoginData({ ...loginData, otp: e.target.value })
-                          }
-                        />
-
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-muted p-3 text-center font-mono tracking-widest">
-                            {captcha}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                              setCaptcha(generateCaptcha());
-                              setCaptchaTimer(60);
-                            }}
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </Button>
-                        </div>
-
-                        <p className="text-xs text-muted-foreground">
-                          CAPTCHA expires in {captchaTimer}s
-                        </p>
-
-                        <Input
-                          placeholder="Enter CAPTCHA"
-                          value={loginData.captcha}
-                          onChange={(e) =>
-                            setLoginData({ ...loginData, captcha: e.target.value })
-                          }
-                        />
-
-                        <Button type="submit" className="w-full">
-                          Verify & Login
-                        </Button>
-                      </>
-                    )}
+                    <Button 
+                      type="submit" 
+                      className="w-full"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Logging in...
+                        </>
+                      ) : (
+                        "Login"
+                      )}
+                    </Button>
                   </form>
                 </TabsContent>
 
                 {/* SIGNUP */}
                 <TabsContent value="signup">
                   <form onSubmit={handleSignup} className="space-y-4">
-                    <Input
-                      placeholder="Authority Email ID"
-                      value={signupData.authorityEmail}
+                    <div>
+                      <Label>Authority Email ID</Label>
+                      <Input
+                        type="email"
+                        placeholder="official@authority.gov.in"
+                        value={signupData.email}
+                        onChange={(e) =>
+                          setSignupData({ ...signupData, email: e.target.value })
+                        }
+                        disabled={isLoading}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Only official authority emails allowed
+                      </p>
+                    </div>
+                    
+                    <Input 
+                      placeholder="Full Name"
+                      value={signupData.full_name}
                       onChange={(e) =>
-                        setSignupData({ ...signupData, authorityEmail: e.target.value })
+                        setSignupData({ ...signupData, full_name: e.target.value })
                       }
+                      disabled={isLoading}
                     />
-                    <Input placeholder="Full Name" />
-                    <Input placeholder="Designation" />
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Department" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pwd">PWD</SelectItem>
-                        <SelectItem value="municipal">Municipal</SelectItem>
-                        <SelectItem value="transport">Transport</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input type="password" placeholder="Create Password" />
-                    <Button type="submit" className="w-full">
-                      Submit Registration
+                    
+                    <Input 
+                      placeholder="Designation"
+                      value={signupData.designation}
+                      onChange={(e) =>
+                        setSignupData({ ...signupData, designation: e.target.value })
+                      }
+                      disabled={isLoading}
+                    />
+                    
+                    <div>
+                      <Label>Department</Label>
+                      <Select
+                        value={signupData.department}
+                        onValueChange={(value) =>
+                          setSignupData({ ...signupData, department: value })
+                        }
+                        disabled={isLoading}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pwd">PWD</SelectItem>
+                          <SelectItem value="municipal">Municipal</SelectItem>
+                          <SelectItem value="transport">Transport</SelectItem>
+                          <SelectItem value="urban">Urban Development</SelectItem>
+                          <SelectItem value="rural">Rural Development</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <Input 
+                      type="password" 
+                      placeholder="Create Password (min 6 characters)"
+                      value={signupData.password}
+                      onChange={(e) =>
+                        setSignupData({ ...signupData, password: e.target.value })
+                      }
+                      disabled={isLoading}
+                    />
+                    
+                    <Input 
+                      type="password" 
+                      placeholder="Confirm Password"
+                      value={signupData.confirmPassword}
+                      onChange={(e) =>
+                        setSignupData({ ...signupData, confirmPassword: e.target.value })
+                      }
+                      disabled={isLoading}
+                    />
+
+                    <Button 
+                      type="submit" 
+                      className="w-full"
+                      disabled={isLoading || !isValidAuthorityEmail(signupData.email)}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        "Submit Registration"
+                      )}
                     </Button>
+                    
+                    <p className="text-xs text-center text-muted-foreground">
+                      You will receive a verification link via email
+                    </p>
                   </form>
                 </TabsContent>
               </Tabs>
