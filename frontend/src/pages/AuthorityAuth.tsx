@@ -8,11 +8,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, MapPin, Building2, RefreshCw, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { authorityApi } from "@/lib/api";
+import { fetchApi } from "@/lib/fetch-api.ts";
+// import * as authorityApi from "@/lib/api";
 
-/* ======================================================
-   APPROVED AUTHORITY EMAIL DOMAINS
-   ====================================================== */
+// import * as authorityApi from "@/lib/api";
+
+
 const ALLOWED_AUTHORITY_DOMAINS = [
   "banasthali.in",
   "gov.in",
@@ -23,185 +24,119 @@ const ALLOWED_AUTHORITY_DOMAINS = [
   "municipal.in",
 ];
 
-/* ======================================================
-   EMAIL DOMAIN VALIDATION
-   ====================================================== */
 const isValidAuthorityEmail = (email: string): boolean => {
   if (!email.includes("@")) return false;
-
-  const parts = email.toLowerCase().split("@");
-  if (parts.length !== 2) return false;
-
-  const domain = parts[1];
-
-  for (let i = 0; i < ALLOWED_AUTHORITY_DOMAINS.length; i++) {
-    if (domain === ALLOWED_AUTHORITY_DOMAINS[i]) {
-      return true;
-    }
-  }
-  return false;
+  const domain = email.toLowerCase().split("@")[1];
+  return ALLOWED_AUTHORITY_DOMAINS.includes(domain);
 };
 
-/* ======================================================
-   CAPTCHA GENERATOR
-   ====================================================== */
 const generateCaptcha = (): string => {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let captcha = "";
-  for (let i = 0; i < 6; i++) {
-    captcha += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return captcha;
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 };
 
 const AuthorityAuth = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
 
-  /* =====================
-     SIGNUP STATE
-     ===================== */
   const [signupData, setSignupData] = useState({
-    email: "",
-    full_name: "",
+    authorityEmail: "",
+    name: "",
     designation: "",
     department: "",
     password: "",
   });
 
-  /* =====================
-     LOGIN STATE
-     ===================== */
   const [loginData, setLoginData] = useState({
     email: "",
-    password: "",
+    otp: "",
+    captcha: "",
   });
 
-  /* =====================
-     CAPTCHA STATE (For future use if needed)
-     ===================== */
+  const [isOtpSent, setIsOtpSent] = useState(false);
   const [captcha, setCaptcha] = useState(generateCaptcha());
   const [captchaTimer, setCaptchaTimer] = useState(60);
+  const [isLoading, setIsLoading] = useState(false);
 
-  /* ======================================================
-     CAPTCHA AUTO REFRESH (60s)
-     ====================================================== */
   useEffect(() => {
-    const refreshInterval = setInterval(() => {
+    const refresh = setInterval(() => {
       setCaptcha(generateCaptcha());
       setCaptchaTimer(60);
     }, 60000);
 
     const countdown = setInterval(() => {
-      setCaptchaTimer((prev) => (prev > 0 ? prev - 1 : 0));
+      setCaptchaTimer((t) => (t > 0 ? t - 1 : 0));
     }, 1000);
 
     return () => {
-      clearInterval(refreshInterval);
+      clearInterval(refresh);
       clearInterval(countdown);
     };
   }, []);
 
-  /* ======================================================
-     LOGIN SUBMIT
-     ====================================================== */
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!loginData.email || !loginData.password) {
-      toast({
-        title: "Missing Information",
-        description: "Please fill in all fields",
-        variant: "destructive",
-      });
+  const handleSendOtp = async () => {
+    if (!isValidAuthorityEmail(loginData.email)) {
+      toast({ title: "Invalid Email", variant: "destructive" });
       return;
     }
 
     setIsLoading(true);
     try {
-      // TODO: Implement actual authority login endpoint
-      // For now, simulate login
-      toast({
-        title: "Login Successful",
-        description: "Redirecting to dashboard...",
-      });
-      
-      localStorage.setItem("authority", JSON.stringify({
-        email: loginData.email,
-        loggedIn: true,
-      }));
-      
-      setTimeout(() => navigate("/authority/dashboard"), 1000);
-    } catch (error: any) {
-      toast({
-        title: "Login Failed",
-        description: error.message || "Invalid credentials",
-        variant: "destructive",
-      });
+      await fetchApi.authority.sendOTP(loginData.email, captcha);
+      setIsOtpSent(true);
+      setCaptcha(generateCaptcha());
+      setCaptchaTimer(60);
+      toast({ title: "OTP Sent" });
+    } catch (e: any) {
+      toast({ title: "OTP Failed", description: e.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   };
 
-  /* ======================================================
-     SIGNUP SUBMIT
-     ====================================================== */
-  const handleSignup = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!isValidAuthorityEmail(signupData.email)) {
-      toast({
-        title: "Invalid Authority Email",
-        description: "Use your official authority email only.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (signupData.password !== signupData.confirmPassword) {
-      toast({
-        title: "Passwords Don't Match",
-        description: "Please make sure passwords match.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (signupData.password.length < 6) {
-      toast({
-        title: "Weak Password",
-        description: "Password must be at least 6 characters.",
-        variant: "destructive",
-      });
+    if (loginData.captcha !== captcha) {
+      toast({ title: "Wrong CAPTCHA", variant: "destructive" });
+      setCaptcha(generateCaptcha());
       return;
     }
 
     setIsLoading(true);
     try {
-      // Call backend API to sign up
-      const response = await authorityApi.signup({
-        email: signupData.email,
-        full_name: signupData.full_name,
+      const res = await fetchApi.authority.verifyOTP(
+        loginData.email,
+        loginData.otp,
+        loginData.captcha
+      );
+
+      localStorage.setItem("authority", JSON.stringify(res.authority));
+      navigate("/authority/dashboard");
+    } catch (e: any) {
+      toast({ title: "Login Failed", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    setIsLoading(true);
+    try {
+      await fetchApi.authority.signup({
+        email: signupData.authorityEmail,
+        name: signupData.name,
         designation: signupData.designation,
         department: signupData.department,
         password: signupData.password,
       });
 
-      toast({
-        title: "Registration Submitted",
-        description: response.message || "Please check your email for verification link.",
-      });
-
-      console.log("Authority signup response:", response);
-
-    } catch (error: any) {
-      toast({
-        title: "Registration Failed",
-        description: error.message || "Please try again",
-        variant: "destructive",
-      });
-      console.error("Authority signup error:", error);
+      toast({ title: "Registered" });
+      navigate("/authority/dashboard");
+    } catch (e: any) {
+      toast({ title: "Signup Failed", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -209,183 +144,79 @@ const AuthorityAuth = () => {
 
   return (
     <div className="min-h-screen gradient-hero">
-      <header className="border-b bg-card/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <MapPin className="w-6 h-6" />
-            <span className="text-xl font-bold">PDS</span>
-          </Link>
-        </div>
-      </header>
+      <main className="container mx-auto px-4 py-12 max-w-md">
+        <Card>
+          <CardHeader className="text-center">
+            <Building2 className="mx-auto mb-2" />
+            <CardTitle>Authority Portal</CardTitle>
+          </CardHeader>
 
-      <main className="container mx-auto px-4 py-12">
-        <div className="max-w-md mx-auto">
-          <Link to="/select-account" className="flex gap-2 mb-6 text-muted-foreground">
-            <ArrowLeft className="w-4 h-4" /> Back
-          </Link>
+          <CardContent>
+            <Tabs defaultValue="login">
+              <TabsList className="grid grid-cols-2 mb-4">
+                <TabsTrigger value="login">Login</TabsTrigger>
+                <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              </TabsList>
 
-          <Card>
-            <CardHeader className="text-center">
-              <Building2 className="mx-auto w-8 h-8 mb-2" />
-              <CardTitle>Authority Portal</CardTitle>
-            </CardHeader>
+              <TabsContent value="login">
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <Input
+                    placeholder="Authority Email"
+                    value={loginData.email}
+                    onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
+                  />
 
-            <CardContent>
-              <Tabs defaultValue="login">
-                <TabsList className="grid grid-cols-2 mb-4">
-                  <TabsTrigger value="login">Login</TabsTrigger>
-                  <TabsTrigger value="signup">Sign Up</TabsTrigger>
-                </TabsList>
-
-                {/* LOGIN */}
-                <TabsContent value="login">
-                  <form onSubmit={handleLogin} className="space-y-4">
-                    <div>
-                      <Label>Authority Email ID</Label>
-                      <Input
-                        type="email"
-                        placeholder="official@authority.gov.in"
-                        value={loginData.email}
-                        onChange={(e) =>
-                          setLoginData({ ...loginData, email: e.target.value })
-                        }
-                        disabled={isLoading}
-                      />
-                    </div>
-                    
-                    <div>
-                      <Label>Password</Label>
-                      <Input
-                        type="password"
-                        placeholder="Enter your password"
-                        value={loginData.password}
-                        onChange={(e) =>
-                          setLoginData({ ...loginData, password: e.target.value })
-                        }
-                        disabled={isLoading}
-                      />
-                    </div>
-
-                    <Button 
-                      type="submit" 
-                      className="w-full"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Logging in...
-                        </>
-                      ) : (
-                        "Login"
-                      )}
+                  {!isOtpSent ? (
+                    <Button onClick={handleSendOtp} disabled={isLoading} className="w-full">
+                      {isLoading ? <Loader2 className="animate-spin" /> : "Send OTP"}
                     </Button>
-                  </form>
-                </TabsContent>
-
-                {/* SIGNUP */}
-                <TabsContent value="signup">
-                  <form onSubmit={handleSignup} className="space-y-4">
-                    <div>
-                      <Label>Authority Email ID</Label>
+                  ) : (
+                    <>
                       <Input
-                        type="email"
-                        placeholder="official@authority.gov.in"
-                        value={signupData.email}
-                        onChange={(e) =>
-                          setSignupData({ ...signupData, email: e.target.value })
-                        }
-                        disabled={isLoading}
+                        placeholder="OTP"
+                        value={loginData.otp}
+                        onChange={(e) => setLoginData({ ...loginData, otp: e.target.value })}
                       />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Only official authority emails allowed
-                      </p>
-                    </div>
-                    
-                    <Input 
-                      placeholder="Full Name"
-                      value={signupData.full_name}
-                      onChange={(e) =>
-                        setSignupData({ ...signupData, full_name: e.target.value })
-                      }
-                      disabled={isLoading}
-                    />
-                    
-                    <Input 
-                      placeholder="Designation"
-                      value={signupData.designation}
-                      onChange={(e) =>
-                        setSignupData({ ...signupData, designation: e.target.value })
-                      }
-                      disabled={isLoading}
-                    />
-                    
-                    <div>
-                      <Label>Department</Label>
-                      <Select
-                        value={signupData.department}
-                        onValueChange={(value) =>
-                          setSignupData({ ...signupData, department: value })
-                        }
-                        disabled={isLoading}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pwd">PWD</SelectItem>
-                          <SelectItem value="municipal">Municipal</SelectItem>
-                          <SelectItem value="transport">Transport</SelectItem>
-                          <SelectItem value="urban">Urban Development</SelectItem>
-                          <SelectItem value="rural">Rural Development</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <Input 
-                      type="password" 
-                      placeholder="Create Password (min 6 characters)"
-                      value={signupData.password}
-                      onChange={(e) =>
-                        setSignupData({ ...signupData, password: e.target.value })
-                      }
-                      disabled={isLoading}
-                    />
-                    
-                    <Input 
-                      type="password" 
-                      placeholder="Confirm Password"
-                      value={signupData.confirmPassword}
-                      onChange={(e) =>
-                        setSignupData({ ...signupData, confirmPassword: e.target.value })
-                      }
-                      disabled={isLoading}
-                    />
 
-                    <Button 
-                      type="submit" 
-                      className="w-full"
-                      disabled={isLoading || !isValidAuthorityEmail(signupData.email)}
-                    >
-                      {isLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Submitting...
-                        </>
-                      ) : (
-                        "Submit Registration"
-                      )}
-                    </Button>
-                    
-                    <p className="text-xs text-center text-muted-foreground">
-                      You will receive a verification link via email
-                    </p>
-                  </form>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-        </div>
+                      <div className="flex gap-2">
+                        <div className="flex-1 text-center font-mono bg-muted p-2">{captcha}</div>
+                        <Button
+                          variant="outline"
+                          onClick={() => setCaptcha(generateCaptcha())}
+                        >
+                          <RefreshCw />
+                        </Button>
+                      </div>
+
+                      <Input
+                        placeholder="Enter CAPTCHA"
+                        value={loginData.captcha}
+                        onChange={(e) =>
+                          setLoginData({ ...loginData, captcha: e.target.value })
+                        }
+                      />
+
+                      <Button type="submit" disabled={isLoading} className="w-full">
+                        Verify & Login
+                      </Button>
+                    </>
+                  )}
+                </form>
+              </TabsContent>
+
+              <TabsContent value="signup">
+                <form onSubmit={handleSignup} className="space-y-3">
+                  <Input placeholder="Email" onChange={(e) => setSignupData({ ...signupData, authorityEmail: e.target.value })} />
+                  <Input placeholder="Name" onChange={(e) => setSignupData({ ...signupData, name: e.target.value })} />
+                  <Input placeholder="Designation" onChange={(e) => setSignupData({ ...signupData, designation: e.target.value })} />
+                  <Input placeholder="Department" onChange={(e) => setSignupData({ ...signupData, department: e.target.value })} />
+                  <Input type="password" placeholder="Password" onChange={(e) => setSignupData({ ...signupData, password: e.target.value })} />
+                  <Button className="w-full">Register</Button>
+                </form>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
       </main>
     </div>
   );

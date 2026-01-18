@@ -1,3 +1,7 @@
+// Add this line at the very top
+declare const require: (module: string) => any;
+
+// OR use global declaration
 import type { Config } from "tailwindcss";
 
 export default {

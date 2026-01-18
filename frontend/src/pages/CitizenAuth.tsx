@@ -5,13 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, MapPin, Phone, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowLeft, MapPin, Phone, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { citizenApi } from "@/lib/api"; // Add this import
 
-/* ======================================================
-   CAPTCHA GENERATOR
-   ====================================================== */
+//CAPTCHA GENERATOR 
 const generateCaptcha = (): string => {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let captcha = "";
@@ -21,9 +18,15 @@ const generateCaptcha = (): string => {
   return captcha;
 };
 
-/* ======================================================
-   INDIAN PHONE VALIDATION (+91 + 10 digits)
-   ====================================================== */
+   //4-DIGIT OTP GENERATOR
+  
+const generateOtp = (): string => {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+};
+
+
+   //INDIAN PHONE VALIDATION (+91 + 10 digits)
+   
 const isValidIndianPhone = (phone: string): boolean => {
   if (phone.length !== 10) return false;
 
@@ -38,8 +41,6 @@ const CitizenAuth = () => {
   const { toast } = useToast();
 
   const [isOtpSent, setIsOtpSent] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"login" | "signup">("login");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -48,15 +49,20 @@ const CitizenAuth = () => {
     captcha: "",
   });
 
-  /* =====================
-     CAPTCHA STATE
-     ===================== */
+  
+     //CAPTCHA STATE
+     
   const [captcha, setCaptcha] = useState(generateCaptcha());
   const [captchaTimer, setCaptchaTimer] = useState(60);
 
-  /* ======================================================
-     CAPTCHA AUTO REFRESH (60s)
-     ====================================================== */
+  
+     //OTP STATE
+     
+  const [generatedOtp, setGeneratedOtp] = useState("");
+
+ 
+     //CAPTCHA AUTO REFRESH (60s)
+     
   useEffect(() => {
     const refreshInterval = setInterval(() => {
       setCaptcha(generateCaptcha());
@@ -73,10 +79,10 @@ const CitizenAuth = () => {
     };
   }, []);
 
-  /* ======================================================
-     SEND OTP - NOW CALLS BACKEND
-     ====================================================== */
-  const handleSendOtp = async () => {
+  
+     //SEND OTP
+     
+  const handleSendOtp = () => {
     if (!isValidIndianPhone(formData.phone)) {
       toast({
         title: "Invalid Phone Number",
@@ -86,38 +92,27 @@ const CitizenAuth = () => {
       return;
     }
 
-    setIsLoading(true);
-    try {
-      // Call backend API to send OTP
-      const response = await citizenApi.sendOTP(formData.phone);
-      
-      setIsOtpSent(true);
-      setCaptcha(generateCaptcha());
-      setCaptchaTimer(60);
+    const otp = generateOtp();
+    setGeneratedOtp(otp);
+    setIsOtpSent(true);
 
-      toast({
-        title: "OTP Sent",
-        description: response.message || "A 4-digit OTP has been sent to your mobile number.",
-      });
+    setCaptcha(generateCaptcha());
+    setCaptchaTimer(60);
 
-      console.log("Backend OTP response:", response);
+    // Simulation only (backend should send OTP)
+    console.log("Generated OTP:", otp);
 
-    } catch (error: any) {
-      toast({
-        title: "Failed to send OTP",
-        description: error.message || "Please try again",
-        variant: "destructive",
-      });
-      console.error("Send OTP error:", error);
-    } finally {
-      setIsLoading(false);
-    }
+    toast({
+      title: "OTP Sent",
+      description: "A 4-digit OTP has been sent to your mobile number.",
+    });
   };
 
-  /* ======================================================
-     VERIFY OTP - NOW CALLS BACKEND
-     ====================================================== */
-  const handleVerifyOtp = async () => {
+      //LOGIN / SIGNUP SUBMIT
+     
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
     if (formData.captcha !== captcha) {
       toast({
         title: "Invalid CAPTCHA",
@@ -129,82 +124,23 @@ const CitizenAuth = () => {
       return;
     }
 
-    if (!formData.otp || formData.otp.length < 4) {
+    if (formData.otp !== generatedOtp) {
       toast({
         title: "Invalid OTP",
-        description: "Please enter the OTP.",
+        description: "Incorrect 4-digit OTP.",
         variant: "destructive",
       });
+      setCaptcha(generateCaptcha());
+      setCaptchaTimer(60);
       return;
     }
 
-    setIsLoading(true);
-    try {
-      // For login, use empty name. For signup, use formData.name
-      const fullName = activeTab === "signup" ? formData.name : "User";
+    toast({
+      title: "Success",
+      description: "Authentication successful! Redirecting...",
+    });
 
-      // Call backend API to verify OTP
-      const response = await citizenApi.verifyOTP(
-        formData.phone,
-        formData.otp,
-        fullName
-      );
-
-      toast({
-        title: "Success",
-        description: response.message || "Authentication successful!",
-      });
-
-      // Store user data in localStorage
-      localStorage.setItem("citizen", JSON.stringify({
-        phone: formData.phone,
-        name: fullName,
-        registered: true,
-      }));
-
-      // Redirect after delay
-      setTimeout(() => navigate("/citizen/dashboard"), 1000);
-
-    } catch (error: any) {
-      toast({
-        title: "Verification Failed",
-        description: error.message || "Invalid OTP",
-        variant: "destructive",
-      });
-      console.error("Verify OTP error:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  /* ======================================================
-     FORM SUBMIT HANDLER
-     ====================================================== */
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    handleVerifyOtp();
-  };
-
-  /* ======================================================
-     RESEND OTP
-     ====================================================== */
-  const handleResendOTP = async () => {
-    setIsLoading(true);
-    try {
-      const response = await citizenApi.sendOTP(formData.phone);
-      toast({
-        title: "OTP Resent",
-        description: "New OTP sent to your phone",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Failed to resend OTP",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    setTimeout(() => navigate("/citizen/dashboard"), 1000);
   };
 
   return (
@@ -231,7 +167,7 @@ const CitizenAuth = () => {
             </CardHeader>
 
             <CardContent>
-              <Tabs defaultValue="login" onValueChange={(value) => setActiveTab(value as any)}>
+              <Tabs defaultValue="login">
                 <TabsList className="grid grid-cols-2 mb-6">
                   <TabsTrigger value="login">Login</TabsTrigger>
                   <TabsTrigger value="signup">Sign Up</TabsTrigger>
@@ -250,36 +186,22 @@ const CitizenAuth = () => {
                         onChange={(e) =>
                           setFormData({ ...formData, phone: e.target.value })
                         }
-                        disabled={isLoading}
                       />
                     </div>
 
                     {!isOtpSent ? (
-                      <Button 
-                        type="button" 
-                        onClick={handleSendOtp} 
-                        className="w-full"
-                        disabled={isLoading || !isValidIndianPhone(formData.phone)}
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Sending...
-                          </>
-                        ) : (
-                          "Send OTP"
-                        )}
+                      <Button type="button" onClick={handleSendOtp} className="w-full">
+                        Send OTP
                       </Button>
                     ) : (
                       <>
                         <Input
-                          placeholder="Enter OTP"
-                          maxLength={6}
+                          placeholder="Enter 4-digit OTP"
+                          maxLength={4}
                           value={formData.otp}
                           onChange={(e) =>
                             setFormData({ ...formData, otp: e.target.value })
                           }
-                          disabled={isLoading}
                         />
 
                         <div className="flex items-center gap-2">
@@ -293,7 +215,6 @@ const CitizenAuth = () => {
                               setCaptcha(generateCaptcha());
                               setCaptchaTimer(60);
                             }}
-                            disabled={isLoading}
                           >
                             <RefreshCw className="w-4 h-4" />
                           </Button>
@@ -309,34 +230,11 @@ const CitizenAuth = () => {
                           onChange={(e) =>
                             setFormData({ ...formData, captcha: e.target.value })
                           }
-                          disabled={isLoading}
                         />
 
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={handleResendOTP}
-                            className="flex-1"
-                            disabled={isLoading}
-                          >
-                            Resend OTP
-                          </Button>
-                          <Button 
-                            type="submit" 
-                            className="flex-1"
-                            disabled={isLoading}
-                          >
-                            {isLoading ? (
-                              <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Verifying...
-                              </>
-                            ) : (
-                              "Verify & Login"
-                            )}
-                          </Button>
-                        </div>
+                        <Button type="submit" className="w-full">
+                          Verify & Login
+                        </Button>
                       </>
                     )}
                   </form>
@@ -351,7 +249,6 @@ const CitizenAuth = () => {
                       onChange={(e) =>
                         setFormData({ ...formData, name: e.target.value })
                       }
-                      disabled={isLoading}
                     />
 
                     <Label>Phone Number</Label>
@@ -364,58 +261,39 @@ const CitizenAuth = () => {
                         onChange={(e) =>
                           setFormData({ ...formData, phone: e.target.value })
                         }
-                        disabled={isLoading}
                       />
                     </div>
 
                     {!isOtpSent ? (
-                      <Button 
-                        type="button" 
-                        onClick={handleSendOtp} 
-                        className="w-full"
-                        disabled={isLoading || !isValidIndianPhone(formData.phone) || !formData.name.trim()}
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Sending...
-                          </>
-                        ) : (
-                          "Send OTP"
-                        )}
+                      <Button type="button" onClick={handleSendOtp} className="w-full">
+                        Send OTP
                       </Button>
                     ) : (
                       <>
                         <Input
-                          placeholder="Enter OTP"
-                          maxLength={6}
+                          placeholder="Enter 4-digit OTP"
+                          maxLength={4}
                           value={formData.otp}
                           onChange={(e) =>
                             setFormData({ ...formData, otp: e.target.value })
                           }
-                          disabled={isLoading}
                         />
 
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-muted p-3 text-center font-mono tracking-widest">
                             {captcha}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
+                            </div>
+                            <Button
+                             type="button"
+                             variant="outline"
+                             onClick={() => {
                               setCaptcha(generateCaptcha());
                               setCaptchaTimer(60);
-                            }}
-                            disabled={isLoading}
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </Button>
+                             }}
+                             >
+                              <RefreshCw className="w-4 h-4" />
+                              </Button>
                         </div>
-
-                        <p className="text-xs text-muted-foreground">
-                          CAPTCHA expires in {captchaTimer}s
-                        </p>
 
                         <Input
                           placeholder="Enter CAPTCHA"
@@ -423,37 +301,11 @@ const CitizenAuth = () => {
                           onChange={(e) =>
                             setFormData({ ...formData, captcha: e.target.value })
                           }
-                          disabled={isLoading}
                         />
 
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                              setIsOtpSent(false);
-                              setFormData({...formData, otp: "", captcha: ""});
-                            }}
-                            className="flex-1"
-                            disabled={isLoading}
-                          >
-                            Change Number
-                          </Button>
-                          <Button 
-                            type="submit" 
-                            className="flex-1"
-                            disabled={isLoading}
-                          >
-                            {isLoading ? (
-                              <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Registering...
-                              </>
-                            ) : (
-                              "Verify & Sign Up"
-                            )}
-                          </Button>
-                        </div>
+                        <Button type="submit" className="w-full">
+                          Verify & Sign Up
+                        </Button>
                       </>
                     )}
                   </form>

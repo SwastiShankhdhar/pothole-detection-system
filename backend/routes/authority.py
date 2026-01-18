@@ -1,108 +1,214 @@
 from fastapi import APIRouter, HTTPException
-from db import get_db
-from passlib.hash import bcrypt
-import uuid
+from pydantic import BaseModel
+import random
+import string
 from datetime import datetime, timedelta
+import mysql.connector
+from passlib.hash import bcrypt
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from db import get_db
+authority_router = APIRouter(
+    prefix="/authority",
+    tags=["Authority"]
+)
 
-authority_router = APIRouter()
-
-# ---------------------------------------------------------
-# 1. SIGNUP: Creates Staging Entry & Generates Token
-# ---------------------------------------------------------
-@authority_router.post("/signup")
-def authority_signup(
-    email: str,
-    full_name: str,
-    designation: str,
-    department: str,
+class AuthoritySignup(BaseModel):
+    email: str
+    full_name: str
+    designation: str
+    department: str
     password: str
-):
-    # 1. Hash the password immediately
-    password_hash = bcrypt.hash(password)
-    
-    # 2. Generate a unique verification token
-    token = str(uuid.uuid4())
-    
-    # 3. Set Expiration (e.g., Link valid for 24 hours)
-    expires_at = datetime.now() + timedelta(hours=24)
 
-    db = get_db()
-    cur = db.cursor()
 
-    try:
-        # 4. Insert into 'authority_verifications' (STAGING TABLE)
-        query = """
-            INSERT INTO authority_verifications 
-            (email, full_name, designation, department, password_hash, verification_token, expires_at, is_verified)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 0)
-        """
-        cur.execute(query, (email, full_name, designation, department, password_hash, token, expires_at))
-        db.commit()
-        
-        # -------------------------------------------------------
-        # TODO: Integrate Email Service Here (SMTP / SendGrid)
-        # For now, we print the link to the console for testing
-        verification_link = f"http://localhost:8000/authority/verify?token={token}"
-        print(f"DEBUG: Verification Link: {verification_link}")
-        # -------------------------------------------------------
+authority_router = APIRouter(prefix="/authority", tags=["Authority"])
+@authority_router.post("/signup")
+def signup_authority(data: AuthoritySignup):
+    return {
+        "message": "Authority registered successfully"
+    }
 
-        return {"message": "Signup successful. Please check your email to verify your account."}
+@authority_router.post("/send-otp")
+def send_otp(email: str, captcha_text: str):
+    return {"message": "OTP sent"}
 
-    except Exception as e:
-        db.rollback()
-        # Handle duplicate email error
-        if "Duplicate entry" in str(e):
-             raise HTTPException(status_code=400, detail="Registration already pending or Email in use")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        cur.close()
-
-# ---------------------------------------------------------
-# 2. VERIFY: Moves Data to Main Table
-# ---------------------------------------------------------
-@authority_router.get("/verify")
-def verify_email(token: str):
+@authority_router.post("/verify-otp")
+def verify_otp(email: str, otp: str, captcha_input: str):
+    return {"message": "OTP verified"}
+@authority_router.post("/login")
+def authority_login(email: str, password: str):
     db = get_db()
     cur = db.cursor(dictionary=True)
 
     try:
-        # 1. Find the pending verification by token
-        check_query = """
-            SELECT * FROM authority_verifications 
-            WHERE verification_token = %s 
-            AND expires_at > NOW()
-        """
-        cur.execute(check_query, (token,))
-        pending_user = cur.fetchone()
+        query = "SELECT * FROM authorities WHERE email = %s"
+        cur.execute(query, (email,))
+        authority = cur.fetchone()
 
-        if not pending_user:
-            raise HTTPException(status_code=400, detail="Invalid or Expired Verification Link")
+        if not authority:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
 
-        # 2. Insert into Main 'authorities' table
-        insert_query = """
-            INSERT INTO authorities 
-            (email, full_name, designation, department, password_hash)
-            VALUES (%s, %s, %s, %s, %s)
-        """
-        cur.execute(insert_query, (
-            pending_user['email'], 
-            pending_user['full_name'], 
-            pending_user['designation'], 
-            pending_user['department'], 
-            pending_user['password_hash']
-        ))
+        if not bcrypt.verify(password, authority["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
 
-        # 3. Delete from staging table (Cleanup)
-        delete_query = "DELETE FROM authority_verifications WHERE verification_id = %s"
-        cur.execute(delete_query, (pending_user['verification_id'],))
+        return {
+            "message": "Login successful",
+            "authority": {
+                "email": authority["email"],
+                "full_name": authority["full_name"],
+                "designation": authority["designation"],
+                "department": authority["department"],
+            }
+        }
 
-        db.commit()
-        return {"message": "Email verified successfully! You can now login."}
-
-    except Exception as e:
-        db.rollback()
-        if "Duplicate entry" in str(e):
-             raise HTTPException(status_code=400, detail="Account already active")
-        raise HTTPException(status_code=500, detail=str(e))
     finally:
         cur.close()
+
+router = APIRouter()
+
+# Database connection
+def get_db():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="ananya29",
+        database="pothole_system"
+    )
+
+class SendOTPRequest(BaseModel):
+    email: str
+    captcha_text: str
+
+class VerifyOTPRequest(BaseModel):
+    email: str
+    otp: str
+    captcha_input: str
+
+class SignupRequest(BaseModel):
+    email: str
+    name: str
+    designation: str
+    department: str
+    password: str
+
+@router.post("/send-otp")
+def send_otp(request: SendOTPRequest):
+    """Send 4-digit OTP to email"""
+    db = get_db()
+    cursor = db.cursor()
+    
+    try:
+        # Store CAPTCHA (frontend generated)
+        cursor.execute(
+            "INSERT INTO captcha_store (email, captcha_text) VALUES (%s, %s)",
+            (request.email, request.captcha_text)
+        )
+        
+        # Generate 4-digit OTP
+        otp = ''.join(random.choices(string.digits, k=4))
+        expires_at = datetime.now() + timedelta(minutes=5)
+        
+        # Store OTP
+        cursor.execute(
+            "INSERT INTO otp_store (email, otp_code, expires_at) VALUES (%s, %s, %s)",
+            (request.email, otp, expires_at)
+        )
+        
+        db.commit()
+        
+        # Print OTP (for development)
+        print(f"OTP for {request.email}: {otp}")
+        
+        return {
+            "success": True,
+            "message": "4-digit OTP sent to your email",
+            "otp_expires": "5 minutes"
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, f"Error: {str(e)}")
+    finally:
+        cursor.close()
+        db.close()
+
+@router.post("/verify-otp")
+def verify_otp(request: VerifyOTPRequest):
+    """Verify OTP for login"""
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    
+    try:
+        # Check CAPTCHA
+        cursor.execute(
+            "SELECT * FROM captcha_store WHERE email = %s AND captcha_text = %s",
+            (request.email, request.captcha_input.upper())
+        )
+        if not cursor.fetchone():
+            raise HTTPException(400, "Invalid CAPTCHA")
+        
+        # Check OTP
+        cursor.execute(
+            """SELECT * FROM otp_store 
+            WHERE email = %s AND otp_code = %s AND expires_at > NOW()""",
+            (request.email, request.otp)
+        )
+        if not cursor.fetchone():
+            raise HTTPException(400, "Invalid or expired OTP")
+        
+        # Check if authority exists
+        cursor.execute(
+            "SELECT * FROM authorities WHERE email = %s",
+            (request.email,)
+        )
+        authority = cursor.fetchone()
+        
+        if not authority:
+            raise HTTPException(404, "Account not found. Please sign up first.")
+        
+        return {
+            "success": True,
+            "message": "Login successful",
+            "authority": {
+                "email": authority['email'],
+                "name": authority['full_name'],
+                "department": authority['department']
+            }
+        }
+        
+    finally:
+        cursor.close()
+        db.close()
+
+@router.post("/signup")
+def signup(request: SignupRequest):
+    """Direct signup (no email verification)"""
+    db = get_db()
+    cursor = db.cursor()
+    
+    try:
+        # Simple password hashing (for now)
+        import hashlib
+        password_hash = hashlib.sha256(request.password.encode()).hexdigest()
+        
+        cursor.execute(
+            """INSERT INTO authorities 
+            (email, full_name, designation, department, password_hash) 
+            VALUES (%s, %s, %s, %s, %s)""",
+            (request.email, request.name, request.designation, 
+             request.department, password_hash)
+        )
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Registration successful! You can now login."
+        }
+        
+    except mysql.connector.IntegrityError:
+        raise HTTPException(400, "Email already registered")
+    except Exception as e:
+        raise HTTPException(500, f"Error: {str(e)}")
+    finally:
+        cursor.close()
+        db.close()
