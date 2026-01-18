@@ -68,7 +68,6 @@ const AuthorityAuth = () => {
     designation: "",
     department: "",
     password: "",
-    confirmPassword: "",
   });
 
   /* =====================
